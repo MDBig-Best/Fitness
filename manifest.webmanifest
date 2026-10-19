@@ -1,0 +1,17 @@
+{
+  "name": "MD-Fitness",
+  "short_name": "MD-Fitness",
+  "description": "Training, Blutdruck und Körperwerte erfassen und auswerten",
+  "lang": "de",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#16365f",
+  "theme_color": "#16365f",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
