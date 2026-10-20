@@ -372,7 +372,7 @@ function load() {
   try { d = JSON.parse(localStorage.getItem(KEY)); } catch (e) { }
   d = d || {};
   return {
-    workouts: d.workouts || [], bp: d.bp || [], body: d.body || [], activities: d.activities || [],
+    workouts: d.workouts || [], bp: d.bp || [], body: d.body || [], activities: d.activities || [], labs: d.labs || [],
     settings: Object.assign({ height: null, goalWeight: null, muscleUnit: '%', customGroups: [], lastBackup: null, theme: 'auto' }, d.settings || {})
   };
 }
@@ -682,7 +682,13 @@ function render() {
   if (TAB === 'more') renderMore();
   if (TAB === 'act') renderAct();
 }
-let rT; window.addEventListener('resize', () => { clearTimeout(rT); rT = setTimeout(render, 200); });
+// Neu zeichnen nur bei echter Breitenänderung (Drehen/Aufklappen) – nicht, wenn die Tastatur aufgeht
+let rT, lastW = window.innerWidth;
+window.addEventListener('resize', () => {
+  if (Math.abs(window.innerWidth - lastW) < 2) return;
+  const a = document.activeElement; if (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;
+  lastW = window.innerWidth; clearTimeout(rT); rT = setTimeout(render, 200);
+});
 
 /* =========================================================
    ÜBERSICHT
@@ -707,9 +713,10 @@ function renderHome() {
     <div class="tile link" data-go="body"><div class="lbl">Gewicht</div>${lw ? `<div class="val">${f1(lw.weight)} <small>kg</small></div><div class="hint">${w30 ? `${sgn(lw.weight - w30.weight)} kg in 4 Wochen` : fshort(pdate(lw.date))}</div>` : '<div class="val muted">–</div>'}</div>
     <div class="tile link" data-go="body"><div class="lbl">Körperfett</div>${lf ? `<div class="val">${f1(lf.fat)} <small>%</small></div>${fs ? `<div style="margin-top:6px"><span class="badge"><i style="background:${fs.c}"></i>${fs.n.replace(/­/g, '')}</span></div>` : ''}` : '<div class="val muted">–</div>'}</div>
   </div>`;
-  h += `<div id="cmpBox"></div><div class="card"><h3>Körperpartien – zuletzt trainiert</h3>${recoveryList(6)}</div>`;
+  h += `<div id="riskBox"></div><div id="cmpBox"></div><div class="card"><h3>Körperpartien – zuletzt trainiert</h3>${recoveryList(6)}</div>`;
   $('#homeBody').innerHTML = h;
   renderCompare($('#cmpBox'));
+  if (typeof renderRiskCard === 'function') renderRiskCard($('#riskBox'));
   $$('[data-go]', $('#homeBody')).forEach(t => t.onclick = () => go(t.dataset.go));
 }
 
@@ -1270,7 +1277,8 @@ function renderMore() {
     <div class="grid3"><div><label class="f">Größe cm</label><input class="in" id="sH" inputmode="numeric" value="${st.height ?? ''}"></div>
     <div><label class="f">Geburtsjahr</label><input class="in" id="sBY" inputmode="numeric" value="${st.birthYear ?? ''}" placeholder="z. B. 1980"></div>
     <div><label class="f">Zielgewicht</label><input class="in" id="sG" inputmode="decimal" value="${st.goalWeight != null ? f1(st.goalWeight) : ''}" placeholder="kg"></div></div>
-    <div class="small muted" style="margin-top:6px">Wird für die Körperanalyse (Körperfett, Muskelindex, Bauchumfang) benötigt.</div>
+    <div class="small muted" style="margin-top:6px">Wird für die Körperanalyse und das Herz-Kreislauf-Risiko benötigt.</div>
+    <button class="btn ghost block" id="sRisk" style="margin-top:10px">❤️ Angaben für Herz-Kreislauf-Risiko (Rauchen, Cholesterin …)</button>
     <label class="f">Muskelmasse angeben in</label><div class="seg" id="sMU"><button data-v="%">Prozent (%)</button><button data-v="kg">Kilogramm (kg)</button></div>
     <label class="f">Sprachansage bei GPS-Aufzeichnung (jeder Kilometer)</label><div class="seg" id="sVo"><button data-v="1">An</button><button data-v="0">Aus</button></div>
     <label class="f">Darstellung</label><div class="seg" id="sTh"><button data-v="auto">Automatisch</button><button data-v="light">Hell</button><button data-v="dark">Dunkel</button></div>
@@ -1284,10 +1292,11 @@ function renderMore() {
     <div class="small muted" style="margin-top:6px">Letzte Sicherung: ${st.lastBackup ? fdate(st.lastBackup) : 'noch nie'} · ${S.workouts.length} Trainings · ${(S.activities || []).length} Aktivitäten · ${S.bp.length} Blutdruckmessungen · ${S.body.length} Körperwerte</div>
     <div class="grid2" style="margin-top:10px"><button class="btn pri" id="exp">Sichern</button><button class="btn" id="imp">Wiederherstellen</button></div>
     <div class="grid2" style="margin-top:8px"><button class="btn sm ghost" id="csvAll">Alles als CSV</button><button class="btn sm danger" id="wipe">Alle Daten löschen</button></div></div>
-  <div class="card"><h3>Info</h3><div class="small ink2">MD-Fitness · Version 1.3<br>© 2026 Maik Daßler<br><br>Blutdruck-Einstufung nach ESC/ESH-Leitlinie 2018. Die App dient der Dokumentation und ersetzt keine ärztliche Diagnose oder Beratung. Die Foto-Erkennung läuft vollständig auf dem Gerät; Fotos werden weder gespeichert noch übertragen.</div></div>`;
+  <div class="card"><h3>Info</h3><div class="small ink2">MD-Fitness · Version 1.4<br>© 2026 Maik Daßler<br><br>Blutdruck-Einstufung nach ESC/ESH-Leitlinie 2018. Die App dient der Dokumentation und ersetzt keine ärztliche Diagnose oder Beratung. Die Foto-Erkennung läuft vollständig auf dem Gerät; Fotos werden weder gespeichert noch übertragen.</div></div>`;
   const saveSet = () => { save(); };
   $('#sH').onchange = e => { st.height = num(e.target.value); saveSet(); };
   $('#sG').onchange = e => { st.goalWeight = num(e.target.value); saveSet(); };
+  $('#sRisk').onclick = () => openRisk();
   $('#sBY').onchange = e => { const y = num(e.target.value); st.birthYear = y && y > 1900 && y <= new Date().getFullYear() ? Math.round(y) : null; saveSet(); };
   const sx = $('#sSx'), setSx = v => { st.sex = v; seg(sx, v, setSx); saveSet(); }; seg(sx, st.sex || '', setSx);
   const mu = $('#sMU'), setMU = v => { st.muscleUnit = v; seg(mu, v, setMU); saveSet(); }; seg(mu, st.muscleUnit, setMU);
@@ -1298,7 +1307,7 @@ function renderMore() {
   $('#exp').onclick = exportJSON;
   $('#imp').onclick = () => $('#fileImport').click();
   $('#csvAll').onclick = exportCSVAll;
-  $('#wipe').onclick = () => { if (confirm('Wirklich ALLE Daten löschen? Dies kann nicht rückgängig gemacht werden.') && confirm('Bist du sicher? Ohne Sicherung sind die Daten weg.')) { const keep = S.settings; S = { workouts: [], bp: [], body: [], activities: [], settings: keep }; save(); IDB.clear('tracks').catch(() => { }); render(); toast('Alle Daten gelöscht'); } };
+  $('#wipe').onclick = () => { if (confirm('Wirklich ALLE Daten löschen? Dies kann nicht rückgängig gemacht werden.') && confirm('Bist du sicher? Ohne Sicherung sind die Daten weg.')) { const keep = S.settings; S = { workouts: [], bp: [], body: [], activities: [], labs: [], settings: keep }; save(); IDB.clear('tracks').catch(() => { }); render(); toast('Alle Daten gelöscht'); } };
   if ($('#instBtn')) $('#instBtn').onclick = async () => { deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt = null; renderMore(); };
 }
 function download(name, text, type) {
@@ -1331,7 +1340,7 @@ $('#fileImport').addEventListener('change', async e => {
     const merge = (a, b) => { const m = new Map(a.map(x => [x.id, x])); for (const x of b || []) m.set(x.id, x); return [...m.values()]; };
     const cnt = (d.workouts || []).length + (d.bp || []).length + (d.body || []).length + (d.activities || []).length;
     if (!confirm(`Sicherung mit ${cnt} Einträgen einlesen? Vorhandene Daten bleiben erhalten, gleiche Einträge werden überschrieben.`)) return;
-    S.workouts = merge(S.workouts, d.workouts); S.bp = merge(S.bp, d.bp); S.body = merge(S.body, d.body); S.activities = merge(S.activities || [], d.activities);
+    S.workouts = merge(S.workouts, d.workouts); S.bp = merge(S.bp, d.bp); S.body = merge(S.body, d.body); S.activities = merge(S.activities || [], d.activities); S.labs = merge(S.labs || [], d.labs);
     for (const t of j.tracks || []) if (t && t.id) await IDB.put('tracks', t.id, t);
     if (d.settings) {
       const cg = new Map((d.settings.customGroups || []).concat(S.settings.customGroups || []).map(g => [g.k, g]));
@@ -1350,5 +1359,6 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
 document.addEventListener('DOMContentLoaded', () => { render(); checkUnfinished(); });
 </script>
 <script src="act.js"></script>
+<script src="risk.js"></script>
 </body>
 </html>
