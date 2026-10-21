@@ -176,7 +176,7 @@ class MiniMap {
    Live-Aufzeichnung
    ========================================================= */
 let REC = null, recWatch = null, recTimer = null, wakeLock = null, recMap = null, lastFix = null, recSaveT = 0;
-const recElapsed = () => !REC ? 0 : ((REC.paused ? REC.pauseStart : Date.now()) - REC.startMs - REC.pausedMs) / 1000;
+const recElapsed = () => !REC || !REC.running || !REC.startMs ? 0 : Math.max(0, ((REC.paused ? REC.pauseStart : Date.now()) - REC.startMs - REC.pausedMs) / 1000);
 
 async function keepAwake() {
   try { if ('wakeLock' in navigator && !wakeLock && document.visibilityState === 'visible') { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => wakeLock = null); } } catch (e) { }
@@ -244,6 +244,7 @@ function drawRecBtns() {
   on('rvPause', () => { REC.paused = true; REC.pauseStart = Date.now(); speak('Pause'); drawRecBtns(); persistRec(true); });
   on('rvRes', () => { REC.pausedMs += Date.now() - REC.pauseStart; REC.paused = false; REC.pauseStart = null; REC.seg++; speak('Weiter'); drawRecBtns(); persistRec(true); });
   on('rvStop', () => { if (confirm('Aufzeichnung beenden und speichern?')) finishRec(); });
+  updRec();
 }
 function onPos(pos) {
   lastFix = pos;

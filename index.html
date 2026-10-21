@@ -48,7 +48,8 @@ body{padding-bottom:calc(76px + env(safe-area-inset-bottom));min-height:100vh;ov
 button,input,select,textarea{font:inherit;color:inherit}
 header.top{position:sticky;top:0;z-index:20;background:var(--head);color:#fff;padding:calc(10px + env(safe-area-inset-top)) 16px 12px;display:flex;align-items:center;gap:10px}
 header.top .logo{width:30px;height:30px;border-radius:8px;background:rgba(255,255,255,.14);display:grid;place-items:center;font-weight:800;font-size:13px;letter-spacing:.5px}
-header.top h1{font-size:18px;margin:0;font-weight:700;flex:1}
+header.top h1{font-size:18px;margin:0;font-weight:700;flex:1;line-height:1.15}
+.verbadge{display:inline-block;margin-top:2px;font-size:10.5px;font-weight:700;letter-spacing:.2px;padding:1px 7px;border-radius:999px;background:rgba(255,255,255,.16);color:#fff;white-space:nowrap}
 header.top .sub{font-size:13px;opacity:.75}
 main{max-width:760px;margin:0 auto;padding:12px 16px 24px}
 section.view{display:none}
@@ -252,6 +253,7 @@ body.recording{overflow:hidden}
   <div class="logo">MD</div>
   <div style="flex:1">
     <h1 id="hdrTitle">Übersicht</h1>
+    <div class="verbadge" title="Installierte Version">MD-Fitness v1.6 · 21.10.2026</div>
   </div>
   <div class="sub" id="hdrDate"></div>
   <button class="hdrbtn" id="hdrMore" aria-label="Einstellungen &amp; Datensicherung"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
@@ -373,7 +375,7 @@ function load() {
   d = d || {};
   return {
     workouts: d.workouts || [], bp: d.bp || [], body: d.body || [], activities: d.activities || [], labs: d.labs || [],
-    settings: Object.assign({ height: null, goalWeight: null, muscleUnit: '%', customGroups: [], lastBackup: null, theme: 'auto' }, d.settings || {})
+    settings: Object.assign({ height: null, goalWeight: null, muscleUnit: 'kg', customGroups: [], lastBackup: null, theme: 'auto' }, d.settings || {})
   };
 }
 let S = load();
@@ -1164,6 +1166,7 @@ function printBP(from, list) {
    KÖRPERWERTE
    ========================================================= */
 const muscleKg = b => b.muscle == null ? null : (b.mUnit || S.settings.muscleUnit) === 'kg' ? b.muscle : b.weight ? b.weight * b.muscle / 100 : null;
+const muscleIn = (b, u) => (u || S.settings.muscleUnit) === 'kg' ? muscleKg(b) : musclePct(b);
 const musclePct = b => b.muscle == null ? null : (b.mUnit || S.settings.muscleUnit) === '%' ? b.muscle : b.weight ? b.muscle / b.weight * 100 : null;
 function renderBody() {
   seg($('#bodyNav'), UI.bodySub, v => { UI.bodySub = v; renderBody(); });
@@ -1180,7 +1183,7 @@ function renderBody() {
   h += `<div class="tiles">
     <div class="tile"><div class="lbl">Gewicht</div><div class="val">${lw ? f1(lw.weight) : '–'} <small>kg</small></div><div class="hint">${firstW && lw ? `${sgn(lw.weight - firstW.weight)} kg im Zeitraum` : ''}${st.goalWeight && lw ? `<br>Ziel ${f1(st.goalWeight)} kg · noch ${f1(Math.abs(lw.weight - st.goalWeight))}` : ''}</div></div>
     <div class="tile"><div class="lbl">Körperfett</div><div class="val">${lf ? f1(lf.fat) : '–'} <small>%</small></div><div class="hint">${lf && lf.weight ? `${f1(lf.weight * lf.fat / 100)} kg Fettmasse` : ''}</div></div>
-    <div class="tile"><div class="lbl">Muskelmasse</div><div class="val">${lm ? f1(lm.muscle) : '–'} <small>${lm ? (lm.mUnit || st.muscleUnit) : ''}</small></div><div class="hint">${lm && (lm.mUnit || st.muscleUnit) === '%' && muscleKg(lm) != null ? `${f1(muscleKg(lm))} kg` : lm && musclePct(lm) != null ? `${f1(musclePct(lm))} %` : ''}</div></div>
+    <div class="tile"><div class="lbl">Muskelmasse</div>${(() => { if (!lm) return '<div class="val">–</div>'; const want = st.muscleUnit, v = muscleIn(lm, want), u = v != null ? want : (lm.mUnit || want), val = v != null ? v : lm.muscle, other = u === 'kg' ? musclePct(lm) : muscleKg(lm); return `<div class="val">${f1(val)} <small>${u}</small></div><div class="hint">${other != null ? `= ${f1(other)} ${u === 'kg' ? '%' : 'kg'}` : ''}</div>`; })()}</div>
     <div class="tile"><div class="lbl">Bauchumfang</div><div class="val">${lwa ? f0(lwa.waist) : '–'} <small>cm</small></div><div class="hint">${lwa ? 'auf Nabelhöhe' : 'optional eintragen'}</div></div>
   </div>`;
   // Körperanalyse
@@ -1231,7 +1234,7 @@ function renderBodyList(el) {
   const all = sortBody();
   const rows = all.map((b, i) => { const p = all.slice(0, i).filter(x => x.weight != null).pop(); return { b, d: p && b.weight != null ? b.weight - p.weight : null }; }).reverse();
   el.innerHTML = `<div class="card tscroll"><table class="t"><tr><th>Datum</th><th>Gewicht</th><th>±</th><th>Fett %</th><th>Muskel</th><th>Bauch</th></tr>
-    ${rows.map(({ b, d }) => `<tr data-edit="k:${b.id}" style="cursor:pointer"><td>${fdate(b.date)}${b.note ? `<div class="small muted">${esc(b.note)}</div>` : ''}</td><td><b>${b.weight != null ? f1(b.weight) : '–'}</b></td><td class="${d > 0 ? '' : 'ink2'}">${d != null ? sgn(d) : ''}</td><td>${b.fat != null ? f1(b.fat) : '–'}</td><td>${b.muscle != null ? f1(b.muscle) + ' ' + (b.mUnit || S.settings.muscleUnit) : '–'}</td><td>${b.waist != null ? f0(b.waist) : '–'}</td></tr>`).join('')}</table>
+    ${rows.map(({ b, d }) => `<tr data-edit="k:${b.id}" style="cursor:pointer"><td>${fdate(b.date)}${b.note ? `<div class="small muted">${esc(b.note)}</div>` : ''}</td><td><b>${b.weight != null ? f1(b.weight) : '–'}</b></td><td class="${d > 0 ? '' : 'ink2'}">${d != null ? sgn(d) : ''}</td><td>${b.fat != null ? f1(b.fat) : '–'}</td><td>${b.muscle != null ? (muscleIn(b) != null ? f1(muscleIn(b)) + ' ' + S.settings.muscleUnit : f1(b.muscle) + ' ' + (b.mUnit || '%')) : '–'}</td><td>${b.waist != null ? f0(b.waist) : '–'}</td></tr>`).join('')}</table>
     <div class="small muted" style="margin-top:8px">Zum Bearbeiten auf eine Zeile tippen.</div></div>`;
   bindItems(el);
 }
@@ -1239,18 +1242,32 @@ function bodySheet(b) {
   const isNew = !b;
   const prev = sortBody().pop();
   b = b ? { ...b } : { id: uid(), date: today(), weight: null, fat: null, muscle: null, mUnit: S.settings.muscleUnit, note: '' };
-  const mU = b.mUnit || S.settings.muscleUnit;
+  let mU = S.settings.muscleUnit;
+  const mStart = b.muscle == null ? null : (muscleIn(b, mU) != null ? muscleIn(b, mU) : (mU = b.mUnit || mU, b.muscle));
+  const mPrev = prev && prev.muscle != null ? muscleIn(prev, mU) : null;
   openSheet(`<h2>${isNew ? 'Körperwerte eintragen' : 'Körperwerte bearbeiten'}</h2>
     <label class="f">Datum</label><input type="date" class="in" id="kD" value="${b.date}">
     <div class="grid3">
       <div><label class="f">Gewicht kg</label><input class="in big-in" id="kWt" inputmode="decimal" value="${b.weight != null ? f1(b.weight) : ''}" placeholder="${prev && prev.weight ? f1(prev.weight) : ''}"></div>
       <div><label class="f">Körperfett %</label><input class="in big-in" id="kFt" inputmode="decimal" value="${b.fat != null ? f1(b.fat) : ''}" placeholder="${prev && prev.fat ? f1(prev.fat) : ''}"></div>
-      <div><label class="f">Muskel ${mU}</label><input class="in big-in" id="kMs" inputmode="decimal" value="${b.muscle != null ? f1(b.muscle) : ''}" placeholder="${prev && prev.muscle ? f1(prev.muscle) : ''}"></div>
+      <div><label class="f">Muskel <span id="kMuL">${mU}</span></label><input class="in big-in" id="kMs" inputmode="decimal" value="${mStart != null ? f1(mStart) : ''}" placeholder="${mPrev != null ? f1(mPrev) : ''}"></div>
     </div>
+    <div class="row" style="margin-top:8px;gap:8px"><span class="small ink2 grow">Muskelmasse eingeben in</span><div class="seg" id="kMU" style="min-width:150px"><button type="button" data-v="kg">kg</button><button type="button" data-v="%">%</button></div></div>
     <label class="f">Bauchumfang cm <span class="muted" style="font-weight:400">(optional, auf Nabelhöhe gemessen)</span></label><input class="in" id="kWa" inputmode="decimal" value="${b.waist != null ? f0(b.waist) : ''}" placeholder="${prev && prev.waist ? f0(prev.waist) : 'z. B. 90'}">
     <div class="small muted" style="margin-top:6px">Leere Felder werden nicht gespeichert.</div>
     <label class="f">Notiz</label><input class="in" id="kN" value="${esc(b.note)}" placeholder="z. B. morgens nüchtern">
     <div class="foot">${isNew ? '' : '<button class="btn danger" id="kDel">Löschen</button>'}<button class="btn ghost" id="kCancel">Abbrechen</button><button class="btn pri" id="kSave">Speichern</button></div>`, sh => {
+    // Einheit umschalten: eingetragenen Wert mit dem Gewicht umrechnen
+    const muSeg = $('#kMU', sh), setMU = v => {
+      if (v !== mU) {
+        const val = num($('#kMs', sh).value), w = num($('#kWt', sh).value) || (prev && prev.weight);
+        if (val != null && w) $('#kMs', sh).value = f1(v === 'kg' ? w * val / 100 : val / w * 100);
+        else if (val != null) { $('#kMs', sh).value = ''; toast('Zum Umrechnen bitte zuerst das Gewicht eintragen'); }
+        mU = v; S.settings.muscleUnit = v; save();
+      }
+      $('#kMuL', sh).textContent = v; seg(muSeg, v, setMU);
+    };
+    setMU(mU);
     $('#kCancel', sh).onclick = () => closeSheet();
     if ($('#kDel', sh)) $('#kDel', sh).onclick = () => { if (confirm('Diesen Eintrag löschen?')) { S.body = S.body.filter(x => x.id !== b.id); save(); closeSheet(); render(); toast('Gelöscht'); } };
     $('#kSave', sh).onclick = () => {
@@ -1258,6 +1275,7 @@ function bodySheet(b) {
       if (b.weight == null && b.fat == null && b.muscle == null && b.waist == null) { toast('Bitte mindestens einen Wert eingeben'); return; }
       if (b.weight != null && (b.weight < 20 || b.weight > 350)) { toast('Gewicht unplausibel'); return; }
       if (b.fat != null && (b.fat < 2 || b.fat > 75)) { toast('Körperfett unplausibel'); return; }
+      if (b.muscle != null && (mU === '%' ? (b.muscle < 15 || b.muscle > 75) : (b.muscle < 10 || b.muscle > 150))) { toast(`Muskelmasse unplausibel – Einheit ${mU === '%' ? 'kg' : '%'} gemeint?`); return; }
       if (!b.t) b.t = new Date().toISOString().slice(11, 16);
       S.body = S.body.filter(x => x.id !== b.id).concat(b); save(); closeSheet(); render(); toast('Gespeichert');
     };
@@ -1279,7 +1297,8 @@ function renderMore() {
     <div><label class="f">Zielgewicht</label><input class="in" id="sG" inputmode="decimal" value="${st.goalWeight != null ? f1(st.goalWeight) : ''}" placeholder="kg"></div></div>
     <div class="small muted" style="margin-top:6px">Wird für die Körperanalyse und das Herz-Kreislauf-Risiko benötigt.</div>
     <button class="btn ghost block" id="sRisk" style="margin-top:10px">❤️ Angaben für Herz-Kreislauf-Risiko (Rauchen, Cholesterin …)</button>
-    <label class="f">Muskelmasse angeben in</label><div class="seg" id="sMU"><button data-v="%">Prozent (%)</button><button data-v="kg">Kilogramm (kg)</button></div>
+    <label class="f">Muskelmasse eingeben und anzeigen in</label><div class="seg" id="sMU"><button data-v="kg">Kilogramm (kg)</button><button data-v="%">Prozent (%)</button></div>
+    <div class="small muted" style="margin-top:4px">Bereits gespeicherte Werte werden automatisch mit dem Gewicht umgerechnet.</div>
     <label class="f">Sprachansage bei GPS-Aufzeichnung (jeder Kilometer)</label><div class="seg" id="sVo"><button data-v="1">An</button><button data-v="0">Aus</button></div>
     <label class="f">Darstellung</label><div class="seg" id="sTh"><button data-v="auto">Automatisch</button><button data-v="light">Hell</button><button data-v="dark">Dunkel</button></div>
   </div>
@@ -1292,7 +1311,7 @@ function renderMore() {
     <div class="small muted" style="margin-top:6px">Letzte Sicherung: ${st.lastBackup ? fdate(st.lastBackup) : 'noch nie'} · ${S.workouts.length} Trainings · ${(S.activities || []).length} Aktivitäten · ${S.bp.length} Blutdruckmessungen · ${S.body.length} Körperwerte</div>
     <div class="grid2" style="margin-top:10px"><button class="btn pri" id="exp">Sichern</button><button class="btn" id="imp">Wiederherstellen</button></div>
     <div class="grid2" style="margin-top:8px"><button class="btn sm ghost" id="csvAll">Alles als CSV</button><button class="btn sm danger" id="wipe">Alle Daten löschen</button></div></div>
-  <div class="card"><h3>Info</h3><div class="small ink2">MD-Fitness · Version 1.4<br>© 2026 Maik Daßler<br><br>Blutdruck-Einstufung nach ESC/ESH-Leitlinie 2018. Die App dient der Dokumentation und ersetzt keine ärztliche Diagnose oder Beratung. Die Foto-Erkennung läuft vollständig auf dem Gerät; Fotos werden weder gespeichert noch übertragen.</div></div>`;
+  <div class="card"><h3>Info</h3><div class="small ink2">MD-Fitness · Version 1.6 (21.10.2026)<br>© 2026 Maik Daßler<br><br>Blutdruck-Einstufung nach ESC/ESH-Leitlinie 2018. Die App dient der Dokumentation und ersetzt keine ärztliche Diagnose oder Beratung. Die Foto-Erkennung läuft vollständig auf dem Gerät; Fotos werden weder gespeichert noch übertragen.</div></div>`;
   const saveSet = () => { save(); };
   $('#sH').onchange = e => { st.height = num(e.target.value); saveSet(); };
   $('#sG').onchange = e => { st.goalWeight = num(e.target.value); saveSet(); };
