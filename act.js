@@ -178,13 +178,27 @@ class MiniMap {
 let REC = null, recWatch = null, recTimer = null, wakeLock = null, recMap = null, lastFix = null, recSaveT = 0;
 const recElapsed = () => !REC || !REC.running || !REC.startMs ? 0 : Math.max(0, ((REC.paused ? REC.pauseStart : Date.now()) - REC.startMs - REC.pausedMs) / 1000);
 
+let wakeErr = false;
 async function keepAwake() {
-  try { if ('wakeLock' in navigator && !wakeLock && document.visibilityState === 'visible') { wakeLock = await navigator.wakeLock.request('screen'); wakeLock.addEventListener('release', () => wakeLock = null); } } catch (e) { }
+  try {
+    if (!('wakeLock' in navigator)) { wakeErr = true; return; }
+    if (!wakeLock && document.visibilityState === 'visible') { wakeLock = await navigator.wakeLock.request('screen'); wakeErr = false; wakeLock.addEventListener('release', () => { wakeLock = null; }); }
+  } catch (e) { wakeErr = true; }
+}
+function startWatch() {
+  if (recWatch != null) navigator.geolocation.clearWatch(recWatch);
+  recWatch = navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
 }
 document.addEventListener('visibilitychange', () => {
   if (!REC && !recWatch) return;
-  if (document.visibilityState === 'visible') { keepAwake(); if (REC && REC.running) { REC.hiddenAt && Date.now() - REC.hiddenAt > 20000 && toast('Willkommen zurück – Lücken im GPS werden als gerade Linie ergänzt'); REC.hiddenAt = null; } }
-  else if (REC && REC.running) { REC.hiddenAt = Date.now(); persistRec(true); }
+  if (document.visibilityState === 'visible') {
+    keepAwake();
+    if ($('#recView')) startWatch();                       // GPS nach Rückkehr sicher neu starten
+    if (REC && REC.running && REC.hiddenAt) {
+      const off = Date.now() - REC.hiddenAt; if (REC.diag) REC.diag.hiddenMs += off; REC.hiddenAt = null;
+      if (off > 15000) toast(`GPS war ${fDur(off / 1000)} unterbrochen (Bildschirm aus / App verlassen)`);
+    }
+  } else if (REC && REC.running) { REC.hiddenAt = Date.now(); persistRec(true); }
 });
 function speak(t) {
   try { if (!S.settings.voice || !('speechSynthesis' in window)) return; const u = new SpeechSynthesisUtterance(t); u.lang = 'de-DE'; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) { }
@@ -203,6 +217,7 @@ function openRecorder(sport, resume) {
   REC = resume || { id: uid(), sport: sport || S.settings.lastSport || 'run', startMs: null, pausedMs: 0, paused: false, pauseStart: null, running: false, pts: [], seg: 0, kmDone: 0 };
   const ov = document.createElement('div'); ov.id = 'recView';
   ov.innerHTML = `<div class="rv-top"><div class="rv-sport" id="rvSport">${SP(REC.sport).ic} ${SP(REC.sport).n}</div><span class="gps" id="rvGps"><i></i>GPS wird gesucht …</span><button class="rv-x" id="rvVoice" aria-label="Sprachansage">${S.settings.voice ? '🔊' : '🔇'}</button></div>
+    <div class="rv-warn" id="rvWarn" hidden></div>
     <div class="rv-map" id="rvMap"></div>
     <div class="rv-time" id="rvTime">0:00</div>
     <div class="rv-grid">
@@ -213,7 +228,7 @@ function openRecorder(sport, resume) {
     </div>
     <div class="rv-sel" id="rvSel">${Object.entries(SPORTS).map(([k, s]) => `<button class="chip ${k === REC.sport ? 'on' : ''}" data-sp="${k}">${s.ic} ${s.n}</button>`).join('')}</div>
     <div class="rv-btns" id="rvBtns"></div>
-    <div class="rv-note">Bildschirm bleibt während der Aufzeichnung an. Die App bitte nicht verlassen oder sperren – im Hintergrund liefert das Handy einer Web-App kein GPS.</div>`;
+    <div class="rv-note" id="rvNote"></div>`;
   document.body.appendChild(ov); document.body.classList.add('recording');
   history.pushState({ rec: 1 }, '');
   recMap = new MiniMap($('#rvMap'), { controls: true, followable: true, ends: true }); recMap.follow = true;
@@ -221,7 +236,8 @@ function openRecorder(sport, resume) {
   if (REC.pts.length) { const l = REC.pts[REC.pts.length - 1]; recMap.center(l[0], l[1], 16); } else recMap.center(49.45, 11.08, 5);
   $('#rvVoice').onclick = () => { S.settings.voice = !S.settings.voice; save(); $('#rvVoice').textContent = S.settings.voice ? '🔊' : '🔇'; };
   $$('#rvSel .chip').forEach(c => c.onclick = () => { REC.sport = c.dataset.sp; S.settings.lastSport = REC.sport; save(); $$('#rvSel .chip').forEach(x => x.classList.toggle('on', x === c)); $('#rvSport').textContent = `${SP(REC.sport).ic} ${SP(REC.sport).n}`; $('#rvAvgL').textContent = SP(REC.sport).foot ? 'Ø min/km' : 'Ø km/h'; $('#rvCur').nextElementSibling.textContent = SP(REC.sport).foot ? 'aktuell min/km' : 'aktuell km/h'; updRec(); });
-  recWatch = navigator.geolocation.watchPosition(onPos, onPosErr, { enableHighAccuracy: true, maximumAge: 0, timeout: 30000 });
+  REC.diag = REC.diag || { fix: 0, acc: 0, jit: 0, out: 0, hiddenMs: 0, gapMs: 0 };
+  startWatch();
   keepAwake();
   recTimer = setInterval(updRec, 1000);
   drawRecBtns(); updRec();
@@ -231,18 +247,19 @@ function drawRecBtns() {
   $('#rvSel').style.display = REC.running ? 'none' : '';
   if (!REC.running) b.innerHTML = `<button class="btn ghost" id="rvCancel">Abbrechen</button><button class="btn pri rv-big" id="rvStart">▶ Start</button>`;
   else if (REC.paused) b.innerHTML = `<button class="btn danger" id="rvStop">■ Beenden</button><button class="btn pri rv-big" id="rvRes">▶ Weiter</button>`;
-  else b.innerHTML = `<button class="btn rv-big" id="rvPause">❚❚ Pause</button>`;
+  else b.innerHTML = `<button class="btn" id="rvLock" aria-label="Bildschirm sperren">🔒 Sperren</button><button class="btn rv-big" id="rvPause">❚❚ Pause</button>`;
   const on = (id, f) => { const e = $('#' + id); if (e) e.onclick = f; };
   on('rvCancel', () => closeRecorder(false));
   on('rvStart', () => {
     if (!lastFix) { if (!confirm('Noch kein GPS-Signal. Trotzdem starten? Die Strecke beginnt, sobald GPS verfügbar ist.')) return; }
     else if (lastFix.coords.accuracy > 40 && !confirm(`GPS noch ungenau (±${Math.round(lastFix.coords.accuracy)} m). Trotzdem starten?`)) return;
-    REC.running = true; REC.startMs = Date.now(); S.settings.lastSport = REC.sport; save();
+    REC.running = true; REC.startMs = Date.now(); REC.lastFixAt = Date.now(); S.settings.lastSport = REC.sport; save();
     if (lastFix && lastFix.coords.accuracy <= 40) addPoint(lastFix);
     speak('Aufzeichnung gestartet'); drawRecBtns(); persistRec(true);
   });
+  on('rvLock', lockScreen);
   on('rvPause', () => { REC.paused = true; REC.pauseStart = Date.now(); speak('Pause'); drawRecBtns(); persistRec(true); });
-  on('rvRes', () => { REC.pausedMs += Date.now() - REC.pauseStart; REC.paused = false; REC.pauseStart = null; REC.seg++; speak('Weiter'); drawRecBtns(); persistRec(true); });
+  on('rvRes', () => { REC.pausedMs += Date.now() - REC.pauseStart; REC.paused = false; REC.pauseStart = null; REC.seg++; REC.lastFixAt = Date.now(); speak('Weiter'); drawRecBtns(); persistRec(true); });
   on('rvStop', () => { if (confirm('Aufzeichnung beenden und speichern?')) finishRec(); });
   updRec();
 }
@@ -251,7 +268,12 @@ function onPos(pos) {
   const acc = pos.coords.accuracy, g = $('#rvGps');
   if (g) { g.className = 'gps ' + (acc <= 15 ? 'ok' : acc <= 40 ? 'mid' : 'bad'); g.innerHTML = `<i></i>GPS ±${Math.round(acc)} m`; }
   if (recMap) { recMap.setPos(pos.coords.latitude, pos.coords.longitude, acc); if (recMap.follow) recMap.center(pos.coords.latitude, pos.coords.longitude, recMap.z < 14 ? 16 : recMap.z); else recMap.render(); }
-  if (REC && REC.running && !REC.paused && acc <= 40) addPoint(pos);
+  if (REC && REC.running && !REC.paused) {
+    const now = Date.now();
+    if (REC.lastFixAt && now - REC.lastFixAt > 20000) REC.diag.gapMs += now - REC.lastFixAt;   // Funkloch / Bildschirm aus
+    REC.lastFixAt = now; REC.diag.fix++;
+    if (acc <= 40) addPoint(pos); else REC.diag.acc++;
+  }
 }
 function onPosErr(e) {
   const g = $('#rvGps'); if (!g) return;
@@ -265,9 +287,9 @@ function addPoint(pos) {
   if (q && q[4] === p[4]) {
     const d = hav(q, p), dt = (t - q[3]) / 1000;
     if (dt <= 0) return;
-    if (d < Math.max(3, Math.min(c.accuracy, 20) * 0.5)) return;            // Zittern im Stand
+    if (d < Math.max(3, Math.min(c.accuracy, 20) * 0.5)) { REC.diag.jit++; return; }   // Zittern im Stand
     if (d / dt > SP(REC.sport).vmax * 1.4 && dt < 30) {                    // Ausreißer
-      REC.rej = (REC.rej || 0) + 1;
+      REC.rej = (REC.rej || 0) + 1; REC.diag.out++;
       if (REC.rej < 5) return;
       REC.seg++; p[4] = REC.seg;                                            // dauerhaft versetzt → neuer Abschnitt
     }
@@ -288,6 +310,11 @@ function updRec() {
   if (!REC.paused && recent.length > 1) { let d = 0; for (let i = 1; i < recent.length; i++) d += hav(recent[i - 1], recent[i]); const dt = (recent[recent.length - 1][3] - recent[0][3]) / 1000; if (dt >= 5 && d > 5) cur = foot ? fPace(dt / (d / 1000)) : f1(d / dt * 3.6); }
   $('#rvCur').textContent = cur;
   $('#rvGain').textContent = f0(st.gain);
+  // Warnung, wenn keine GPS-Daten mehr kommen
+  const w = $('#rvWarn'), since = REC.running && !REC.paused && REC.lastFixAt ? (now - REC.lastFixAt) / 1000 : 0;
+  if (since > 15) { w.hidden = false; w.textContent = `⚠ Seit ${fDur(since)} kein GPS-Signal – App geöffnet und Bildschirm an lassen`; } else w.hidden = true;
+  $('#rvNote').innerHTML = (wakeLock ? '🔆 Bildschirm bleibt an' : '⚠ <b>Bildschirm kann ausgehen</b> – bitte Energiesparmodus aus oder Bildschirm-Timeout verlängern') +
+    '<br>Nicht zuklappen, sperren oder die App wechseln: dann liefert das Handy kein GPS. Gegen versehentliches Tippen: „🔒 Sperren“.';
   // Kilometer-Ansage
   const km = Math.floor(st.dist / 1000);
   if (REC.running && km > REC.kmDone) {
@@ -296,6 +323,19 @@ function updRec() {
     const h = Math.floor(el / 3600), m = Math.floor(el % 3600 / 60);
     speak(`${km} Kilometer. Zeit ${h ? h + ' Stunden ' : ''}${m} Minuten. ${tempo}.`);
   }
+}
+function lockScreen() {
+  const v = $('#recView'); if (!v || $('#rvLockOv')) return;
+  const o = document.createElement('div'); o.id = 'rvLockOv';
+  o.innerHTML = `<div class="lk-in"><div class="lk-t" id="lkT">0:00</div><div class="lk-d" id="lkD">0,00 km</div><button class="lk-b" id="lkB"><span id="lkF"></span>🔓 Gedrückt halten zum Entsperren</button></div>`;
+  v.appendChild(o);
+  const tick = () => { if (!$('#rvLockOv')) return; $('#lkT').textContent = $('#rvTime').textContent; $('#lkD').textContent = $('#rvDist').textContent + ' km'; };
+  tick(); o._t = setInterval(tick, 1000);
+  let hold = null; const b = $('#lkB'), f = $('#lkF');
+  const down = e => { e.preventDefault(); f.style.transition = 'width 1.2s linear'; f.style.width = '100%'; hold = setTimeout(() => { clearInterval(o._t); o.remove(); }, 1200); };
+  const up = () => { clearTimeout(hold); f.style.transition = 'none'; f.style.width = '0'; };
+  b.addEventListener('pointerdown', down); ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, up));
+  o.addEventListener('click', e => e.stopPropagation());
 }
 function stopWatch() {
   if (recWatch != null) navigator.geolocation.clearWatch(recWatch); recWatch = null;
@@ -314,9 +354,12 @@ window.addEventListener('popstate', () => { if ($('#recView')) { history.pushSta
 function finishRec() {
   if (REC.paused) { REC.pausedMs += Date.now() - REC.pauseStart; REC.paused = false; }
   const dur = Math.round(((REC.pauseStart || Date.now()) - REC.startMs - REC.pausedMs) / 1000);
-  const r = REC; closeRecorder(true);
+  const r = REC; r.diag = r.diag || { fix: 0, acc: 0, jit: 0, out: 0, hiddenMs: 0, gapMs: 0 };
+  if (r.lastFixAt && Date.now() - r.lastFixAt > 20000 && !r.pauseStart) r.diag.gapMs += Date.now() - r.lastFixAt;
+  closeRecorder(true);
   const st = trackStats(r.pts);
-  const a = { id: r.id, sport: r.sport, start: localTs(r.startMs), dist: Math.round(st.dist), dur, gain: st.gain, loss: st.loss, maxV: st.maxV, splits: st.splits, src: 'gps', note: '', hr: null, pts: r.pts.length };
+  const a = { id: r.id, sport: r.sport, start: localTs(r.startMs), dist: Math.round(st.dist), dur, gain: st.gain, loss: st.loss, maxV: st.maxV, splits: st.splits, src: 'gps', note: '', hr: null, pts: r.pts.length,
+    gapS: Math.round(Math.max(r.diag.gapMs, r.diag.hiddenMs) / 1000), diag: r.diag };
   a.kcal = kcalFor(a.sport, a.dist, a.dur);
   activitySheet(a, r.pts, true);
 }
@@ -349,6 +392,8 @@ function activitySheet(a, pts, isNewRec, isManual) {
     ${(isNewRec || (isNew && pts && pts.length)) && a.dur ? `<div class="tiles" style="margin-top:6px"><div class="tile"><div class="lbl">Strecke</div><div class="val">${fKm(a.dist)} <small>km</small></div></div><div class="tile"><div class="lbl">Zeit</div><div class="val">${fDur(a.dur)}</div></div><div class="tile"><div class="lbl">${SP(a.sport).foot ? 'Ø Tempo' : 'Ø Geschw.'}</div><div class="val" style="font-size:20px">${tempoTxt(a)}</div></div><div class="tile"><div class="lbl">Höhenmeter</div><div class="val">${a.gain} <small>m ↑</small></div></div></div>` : ''}
     <label class="f">Sportart</label><div class="chips" id="aSp">${Object.entries(SPORTS).map(([k, s]) => `<button type="button" class="chip ${k === a.sport ? 'on' : ''}" data-sp="${k}">${s.ic} ${s.n}</button>`).join('')}</div>
     <label class="f">Start</label><input type="datetime-local" class="in" id="aT" value="${a.start}">
+    ${hasTrack && (a.gapS > 30 || (a.dur > 120 && a.dist < 100)) ? `<div class="warnbox"><b>Strecke vermutlich unvollständig.</b> ${a.gapS > 30 ? `Das GPS hat <b>${fDur(a.gapS)}</b> lang keine Positionen geliefert` : 'Es wurden kaum Positionen aufgezeichnet'} – meist weil der Bildschirm aus war, das Handy zugeklappt wurde oder die App im Hintergrund lief. Du kannst die Strecke unten von Hand korrigieren.${a.diag ? `<div class="small muted" style="margin-top:6px">GPS-Protokoll: ${a.diag.fix} Positionen empfangen · ${a.pts} gespeichert · ${a.diag.acc} zu ungenau · ${a.diag.jit} Stillstand · ${a.diag.out} Ausreißer · Hintergrund ${fDur(a.diag.hiddenMs / 1000)}</div>` : ''}</div>` : ''}
+    ${hasTrack ? `<label class="f">Strecke km${a.gpsDist != null || a.src === 'gps' ? ` <span class="muted" style="font-weight:400">(GPS gemessen: ${fKm(a.gpsDist != null ? a.gpsDist : a.dist)} km – bei Bedarf korrigieren)</span>` : ''}</label><input class="in" id="aDk" inputmode="decimal" value="${f1((a.dist || 0) / 1000, 2)}">` : ''}
     ${!hasTrack ? `<div class="grid3"><div><label class="f">Strecke km</label><input class="in" id="aD" inputmode="decimal" value="${a.dist ? f1(a.dist / 1000, 2) : ''}"></div><div><label class="f">Dauer h:mm:ss</label><input class="in" id="aDu" value="${a.dur ? fDur(a.dur) : ''}" placeholder="45:00"></div><div><label class="f">Höhenm. ↑</label><input class="in" id="aG" inputmode="numeric" value="${a.gain || ''}"></div></div>` : ''}
     ${hasTrack && !a.dur ? `<label class="f">Dauer h:mm:ss (Datei ohne Zeitangaben)</label><input class="in" id="aDu" placeholder="z. B. 1:05:00">` : ''}
     <div class="grid2"><div><label class="f">Ø Herzfrequenz (optional)</label><input class="in" id="aHr" inputmode="numeric" value="${a.hr || ''}" placeholder="Schläge/min"></div><div><label class="f">Gefühl</label><div class="seg" id="aFeel"><button type="button" data-v="1">😓</button><button type="button" data-v="2">🙂</button><button type="button" data-v="3">💪</button></div></div></div>
@@ -363,6 +408,7 @@ function activitySheet(a, pts, isNewRec, isManual) {
       a.sport = sp; a.start = $('#aT', sh).value || a.start; a.note = $('#aN', sh).value.trim(); a.hr = num($('#aHr', sh).value); a.feel = feel ? +feel : null;
       if ($('#aD', sh)) { a.dist = Math.round((num($('#aD', sh).value) || 0) * 1000); a.gain = Math.round(num($('#aG', sh).value) || 0); }
       if ($('#aDu', sh) && $('#aDu', sh).value) a.dur = Math.round(parseDur($('#aDu', sh).value) || 0);
+      if ($('#aDk', sh)) { const km = num($('#aDk', sh).value); if (km != null && Math.abs(km * 1000 - a.dist) > 5) { if (a.gpsDist == null) a.gpsDist = a.dist; a.dist = Math.round(km * 1000); a.splits = []; } }
       if (!a.dist && !a.dur) { toast('Bitte Strecke oder Dauer angeben'); return; }
       a.kcal = kcalFor(a.sport, a.dist || 0, a.dur || 0);
       await saveActivity(a, pts && pts.length ? pts : null);
